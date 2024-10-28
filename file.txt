@@ -1,0 +1,115 @@
+task.wait(1)
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+local FormatNumber = require(ReplicatedStorage.Libs.FormatNumber.Simple)
+local RebirthConfig = require(ReplicatedStorage.Configs.Rebirths)
+local Remotes = ReplicatedStorage.Remotes
+
+local Player = Players.LocalPlayer
+local PlayerGui = Player.PlayerGui
+
+local ButtonGui = PlayerGui:WaitForChild("Left")
+local OpenButton = ButtonGui.Frame.Buttons.Rebirths
+
+local Gui = PlayerGui:WaitForChild("Rebirth")
+local Frame = Gui.Frame
+
+local Rebirths = Frame.Rebirths
+local ExitButton = Frame.Exit
+local Container = Frame.Container
+
+local UnlimitedButton = Container.Unlimited
+local Template = Container.Template
+
+local REBIRTH_DISPLAY_TEMPLATE = "Rebirths: AMOUNT"
+local REBIRTH_BUTTON_REBIRTHS_TEMPLATE = "AMOUNT Rebirths"
+local REBIRTH_BUTTON_COST_TEMPLATE = "Cost: AMOUNT"
+
+local Data = {
+	Rebirths = 0,
+	RebirthButtons = {}
+}
+
+local function UnlockButtons()
+	for _, child in Container:GetChildren() do
+		if not child:IsA("TextButton") or child.Name == "Template" or child.Name == "Unlimited" then continue end
+		local clone: typeof(Template) = child
+		clone.Visible = Data.RebirthButtons[clone.Name]
+	end
+end
+
+local function UpdateButtonCosts()
+	for _, child in Container:GetChildren() do
+		if not child:IsA("TextButton") or child.Name == "Template" or child.Name == "Unlimited" then continue end
+		local clone: typeof(Template) = child
+		
+		local rebirths = tonumber(clone.Name)
+		local cost = RebirthConfig.CalculatePrice(Data.Rebirths, rebirths)
+		clone.Cost.Text = REBIRTH_BUTTON_COST_TEMPLATE:gsub("AMOUNT", FormatNumber.FormatCompact(tonumber(rebirths)))
+	end
+end
+
+local function UpdateButtonBuyable(amount: number)
+	for _, child in Container:GetChildren() do
+		if not child:IsA("TextButton") or child.Name == "Template" or child.Name == "Unlimited" then continue end
+		local clone: typeof(Template) = child
+
+		local rebirths = tonumber(clone.Name)
+		local cost = RebirthConfig.CalculatePrice(Data.Rebirths, rebirths)
+		local canAfford = amount >= cost
+		
+		clone.Cost.Text = REBIRTH_BUTTON_COST_TEMPLATE:gsub("AMOUNT", FormatNumber.FormatCompact(tonumber(rebirths)))
+		
+		clone.BackgroundColor3 = if canAfford then Color3.fromRGB(142,255,101) else Color3.fromRGB(111,111,111)
+	end
+end
+
+local function GenerateButton(rebirths: string)
+	local isUnlocked = RebirthConfig.HasButtonUnlocked(Data, tonumber(rebirths))
+	local clone = Template:Clone()
+	clone.Parent = Container
+	clone.Name = rebirths
+	clone.Visible = isUnlocked
+	clone.LayoutOrder = tonumber(rebirths)
+	clone.Rebirths.Text = REBIRTH_BUTTON_REBIRTHS_TEMPLATE:gsub("AMOUNT", FormatNumber.FormatCompact(tonumber(rebirths)))
+	
+	clone.MouseButton1Click:Connect(function()
+		print("Clicked!")
+		Remotes.RequestRebirth:FireServer(rebirths)
+	end)
+	
+end
+
+local function UpdateRebirth(amount: number)
+	Rebirths.Text = REBIRTH_DISPLAY_TEMPLATE:gsub("AMOUNT", FormatNumber.FormatCompact(amount))
+	Data.Rebirths = amount
+	UpdateButtonCosts()
+end
+
+for rebirths, info in RebirthConfig.Buttons do
+	GenerateButton(rebirths)
+end
+
+Remotes.UpdateClicks.OnClientEvent:Connect(UpdateButtonBuyable)
+
+UpdateRebirth(Remotes.GetData:InvokeServer("Rebirths"))
+Remotes.UpdateRebirths.OnClientEvent:Connect(UpdateRebirth)
+Remotes.UpdateRebirthButton.OnClientEvent:Connect(function(rebirth: string, isUnlocked: boolean)
+	Data.RebirthButtons[rebirth] = isUnlocked
+	UnlockButtons()
+end)
+
+OpenButton.MouseButton1Click:Connect(function()
+	Gui.Enabled = not Gui.Enabled
+end)
+ExitButton.MouseButton1Click:Connect(function()
+	Gui.Enabled = false
+end)
+
+UpdateButtonCosts()
+UpdateButtonBuyable(Remotes.GetData:InvokeServer("Clicks"))
+
+Data.RebirthButtons = Remotes.GetData:InvokeServer("RebirthButtons")
+UnlockButtons()
